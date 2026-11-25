@@ -1,0 +1,111 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diffly | Compare two texts and see what changed</title>
+<meta name="description" content="Paste two versions of text or code and see added and removed lines with word-level highlights. Split or unified view. Offline.">
+<meta property="og:title" content="Diffly"><meta property="og:description" content="Compare two texts, line by line and word by word."><meta property="og:image" content="og.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='50' height='100' fill='%23ffb3b3'/%3E%3Crect x='50' width='50' height='100' fill='%23a6e8b0'/%3E%3C/svg%3E">
+<style>
+:root{--add:#d4f7da;--addw:#7fdc92;--del:#ffdcdc;--delw:#ff9d9d;--ink:#1f2328}
+*{box-sizing:border-box}
+body{margin:0;background:#fbfaf7;color:var(--ink);font:15px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
+.w{max-width:1180px;margin:0 auto;padding:22px 16px 50px}
+h1{margin:0;font:700 34px Georgia,serif;letter-spacing:-1px}h1 i{background:linear-gradient(90deg,var(--del) 50%,var(--add) 50%);padding:0 8px;font-style:normal}
+.sub{margin:4px 0 18px;color:#666}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.two label{font:700 12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:1px;color:#777}
+textarea{width:100%;height:190px;border:1px solid #d0cfc8;border-radius:6px;padding:10px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:#fff;color:var(--ink);resize:vertical}
+.ctl{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:14px 0}
+.ctl label{font-size:14px}
+button{font:600 13px inherit;font-family:inherit;border:1px solid #1f2328;background:#fff;border-radius:6px;padding:7px 14px;cursor:pointer}
+button.on,button.p{background:#1f2328;color:#fff}
+.sum{font:600 14px ui-monospace,monospace}.sum b{color:#1a7f37}.sum u{color:#cf222e;text-decoration:none}
+.diff{border:1px solid #d0cfc8;border-radius:8px;overflow:auto;background:#fff;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace}
+.diff table{border-collapse:collapse;width:100%}
+.diff td{padding:0 8px;vertical-align:top;white-space:pre-wrap;word-break:break-word}
+.diff td.no{width:42px;text-align:right;color:#8c959f;background:#f6f8fa;user-select:none;border-right:1px solid #eaeef2}
+tr.a td:not(.no){background:var(--add)}tr.d td:not(.no){background:var(--del)}
+tr.a td.no{background:#bdf0c6}tr.d td.no{background:#ffc4c4}
+td.e{background:#f6f8fa}
+mark.a{background:var(--addw);border-radius:2px}mark.d{background:var(--delw);border-radius:2px}
+.same{padding:6px 12px;color:#6b7785;background:#f6f8fa;text-align:center;font-size:12px}
+</style></head><body><div class="w">
+<h1>Diff<i>ly</i></h1><p class="sub">Paste two versions. See exactly what changed, line by line and word by word.</p>
+<div class="two"><div><label>Original</label><textarea id="a" spellcheck="false"></textarea></div><div><label>Changed</label><textarea id="b" spellcheck="false"></textarea></div></div>
+<div class="ctl"><span><button id="vs" class="on">Split</button> <button id="vu">Unified</button></span>
+<label><input type="checkbox" id="iw"> Ignore whitespace</label><label><input type="checkbox" id="ic"> Ignore case</label>
+<button onclick="swap()">Swap</button><button class="p" onclick="copyDiff()">Copy unified diff</button><span class="sum" id="sum"></span></div>
+<div class="diff" id="out"></div></div>
+<script>
+const $=s=>document.querySelector(s);let mode='s',last=[];
+const norm=s=>{if($('#iw').checked)s=s.replace(/\s+/g,' ').trim();if($('#ic').checked)s=s.toLowerCase();return s};
+function lcs(A,B,eq){
+ const n=A.length,m=B.length,L=Array.from({length:n+1},()=>new Uint32Array(m+1));
+ for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=eq(A[i],B[j])?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+ const o=[];let i=0,j=0;
+ while(i<n&&j<m){if(eq(A[i],B[j])){o.push(['=',A[i],B[j]]);i++;j++}else if(L[i+1][j]>=L[i][j+1]){o.push(['-',A[i]]);i++}else{o.push(['+',B[j]]);j++}}
+ while(i<n)o.push(['-',A[i++]]);while(j<m)o.push(['+',B[j++]]);return o;
+}
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function words(x,y){
+ const A=x.split(/(\s+)/),B=y.split(/(\s+)/),ops=lcs(A,B,(p,q)=>norm(p)===norm(q));let l='',r='';
+ for(const o of ops){if(o[0]==='=' ){l+=esc(o[1]);r+=esc(o[2])}else if(o[0]==='-')l+=o[1].trim()?`<mark class="d">${esc(o[1])}</mark>`:esc(o[1]);else r+=o[1].trim()?`<mark class="a">${esc(o[1])}</mark>`:esc(o[1])}
+ return [l,r];
+}
+function run(){
+ const A=$('#a').value.split('\n'),B=$('#b').value.split('\n'),ops=lcs(A,B,(p,q)=>norm(p)===norm(q));
+ // pair adjacent -/+ blocks
+ const rows=[];let i=0,la=1,lb=1,add=0,del=0;
+ while(i<ops.length){
+  if(ops[i][0]==='='){rows.push({t:'=',l:ops[i][1],r:ops[i][2],ln:la++,rn:lb++});i++;continue}
+  const ds=[],as=[];while(i<ops.length&&ops[i][0]==='-')ds.push(ops[i++][1]);while(i<ops.length&&ops[i][0]==='+')as.push(ops[i++][1]);
+  const n=Math.max(ds.length,as.length);
+  for(let k=0;k<n;k++){const d=ds[k],a=as[k];let L=d===undefined?null:esc(d),R=a===undefined?null:esc(a);
+   if(d!==undefined&&a!==undefined)[L,R]=words(d,a);
+   rows.push({t:'c',l:L,r:R,ln:d!==undefined?la++:null,rn:a!==undefined?lb++:null,dl:d,ar:a});if(d!==undefined)del++;if(a!==undefined)add++}
+ }
+ last=rows;$('#sum').innerHTML=`<b>+${add}</b> <u>-${del}</u>`+(add+del===0?' identical':'');
+ let h='<table>';
+ if(mode==='s'){
+  for(const r of rows){
+   if(r.t==='=')h+=`<tr><td class="no">${r.ln}</td><td>${esc(r.l)}</td><td class="no">${r.rn}</td><td>${esc(r.r)}</td></tr>`;
+   else h+=`<tr><td class="no ${r.l===null?'':'d'}" style="${r.l===null?'':'background:#ffc4c4'}">${r.ln??''}</td>${r.l===null?'<td class="e"></td>':`<td style="background:var(--del)">${r.l}</td>`}<td class="no" style="${r.r===null?'':'background:#bdf0c6'}">${r.rn??''}</td>${r.r===null?'<td class="e"></td>':`<td style="background:var(--add)">${r.r}</td>`}</tr>`}
+ }else{
+  for(const r of rows){
+   if(r.t==='=')h+=`<tr><td class="no">${r.ln}</td><td class="no">${r.rn}</td><td>  ${esc(r.l)}</td></tr>`;
+   else{if(r.l!==null)h+=`<tr class="d"><td class="no">${r.ln}</td><td class="no"></td><td>- ${r.l}</td></tr>`;if(r.r!==null)h+=`<tr class="a"><td class="no"></td><td class="no">${r.rn}</td><td>+ ${r.r}</td></tr>`}
+  }
+ }
+ $('#out').innerHTML=h+'</table>';
+}
+function swap(){const t=$('#a').value;$('#a').value=$('#b').value;$('#b').value=t;run()}
+function copyDiff(){
+ const t=last.map(r=>r.t==='='?'  '+r.l.replace(/<[^>]+>/g,''):[(r.dl!==undefined?'- '+r.dl:null),(r.ar!==undefined?'+ '+r.ar:null)].filter(x=>x!==null).join('\n')).join('\n');
+ navigator.clipboard&&navigator.clipboard.writeText(t).then(()=>{$('#sum').textContent='Copied'},()=>{});
+}
+$('#vs').onclick=()=>{mode='s';$('#vs').classList.add('on');$('#vu').classList.remove('on');run()};
+$('#vu').onclick=()=>{mode='u';$('#vu').classList.add('on');$('#vs').classList.remove('on');run()};
+['a','b'].forEach(k=>$('#'+k).oninput=run);['iw','ic'].forEach(k=>$('#'+k).onchange=run);
+if(location.search.includes('demo=1')||true){
+ $('#a').value=`function total(items) {
+  let sum = 0;
+  for (let i = 0; i < items.length; i++) {
+    sum += items[i].price;
+  }
+  return sum;
+}
+
+// prints the total
+console.log(total(cart));`;
+ $('#b').value=`function total(items, tax = 0) {
+  let sum = 0;
+  for (const item of items) {
+    sum += item.price * item.qty;
+  }
+  return sum * (1 + tax);
+}
+
+// prints the total with 14% tax
+console.log(total(cart, 0.14));`;
+}
+run();
+</script></body></html>
